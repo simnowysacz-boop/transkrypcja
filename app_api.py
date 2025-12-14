@@ -144,95 +144,186 @@ def aplikacja_glowna():
             st.rerun()
     
     # Główna sekcja
-    st.header("📎 Podaj link do materiału")
-    url = st.text_input(
-        "Link do filmu (Facebook lub YouTube):",
-        placeholder="https://www.youtube.com/watch?v=...",
-        help="Wklej pełny link do filmu z Facebooka lub YouTube"
-    )
+    st.header("📎 Wybierz źródło materiału")
     
-    if st.button("🎬 Rozpocznij transkrypcję", type="primary"):
-        if not url:
-            st.warning("⚠️ Proszę podać link do filmu.")
-            return
+    # Zakładki do wyboru źródła
+    tab1, tab2 = st.tabs(["📤 Wgrij plik audio", "🔗 Link YouTube/Facebook"])
+    
+    # TAB 1: Wgrywanie pliku audio
+    with tab1:
+        st.subheader("Wgrij plik audio")
+        st.write("Obsługiwane formaty: MP3, WAV, M4A, OGG, FLAC (max 25MB)")
         
-        # Tworzenie tymczasowego katalogu
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                # Pobieranie audio
-                with st.spinner("⬇️ Pobieranie audio..."):
-                    output_path = os.path.join(temp_dir, "audio")
-                    audio_file, duration = pobierz_audio(url, output_path)
-                    st.success("✅ Audio pobrane pomyślnie!")
+        uploaded_file = st.file_uploader(
+            "Wybierz plik audio:",
+            type=["mp3", "wav", "m4a", "ogg", "flac"],
+            help="Wgrany plik będzie transkrybowany przez OpenAI Whisper API"
+        )
+        
+        if uploaded_file is not None:
+            file_size_mb = uploaded_file.size / (1024 * 1024)
+            
+            if file_size_mb > 25:
+                st.error(f"❌ Plik jest za duży ({file_size_mb:.1f}MB). OpenAI API akceptuje max 25MB.")
+            else:
+                st.success(f"✅ Plik załadowany: {uploaded_file.name} ({file_size_mb:.2f}MB)")
                 
-                # Sprawdź rozmiar pliku (API ma limit 25MB)
-                file_size_mb = os.path.getsize(audio_file) / (1024 * 1024)
-                if file_size_mb > 25:
-                    st.error(f"❌ Plik jest za duży ({file_size_mb:.1f}MB). OpenAI API akceptuje max 25MB.")
-                    st.info("💡 Spróbuj krótszego filmu lub użyj wersji lokalnej (app.py)")
-                    return
-                
-                # Szacowany koszt
-                cost_usd = (duration / 60) * 0.006
-                cost_pln = cost_usd * 4.0
-                st.info(f"💰 Szacowany koszt: ${cost_usd:.4f} (~{cost_pln:.2f} PLN)")
-                
-                # Transkrypcja
-                with st.spinner("🎙️ Transkrypcja w toku... To może potrwać chwilę."):
-                    result = transkrybuj_audio_api(audio_file)
-                    st.success("✅ Transkrypcja zakończona!")
-                
-                # Wyświetlanie wyników
-                st.header("📝 Wyniki transkrypcji")
-                
-                # Pełny tekst
-                st.subheader("Pełny tekst:")
-                st.text_area(
-                    "Transkrypcja:",
-                    result['text'],
-                    height=300,
-                    label_visibility="collapsed"
-                )
-                
-                # Przycisk pobierania
-                st.download_button(
-                    label="💾 Pobierz transkrypcję (TXT)",
-                    data=result['text'],
-                    file_name="transkrypcja.txt",
-                    mime="text/plain"
-                )
-                
-                # Segmenty z czasami (jeśli dostępne)
-                if result.get('segments'):
-                    with st.expander("🕐 Pokaż segmenty z znacznikami czasu"):
-                        for segment in result['segments']:
-                            start = segment.get('start', 0)
-                            end = segment.get('end', 0)
-                            text = segment.get('text', '')
-                            st.write(f"**[{start:.2f}s - {end:.2f}s]** {text}")
-                
-                # Informacje statystyczne
-                with st.expander("📊 Statystyki"):
-                    num_chars = len(result['text'])
-                    num_words = len(result['text'].split())
+                if st.button("🎙️ Transkrybuj wgrany plik", type="primary", key="transcribe_file"):
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        try:
+                            # Zapisz wgrany plik tymczasowo
+                            temp_audio = os.path.join(temp_dir, uploaded_file.name)
+                            with open(temp_audio, "wb") as f:
+                                f.write(uploaded_file.getbuffer())
+                            
+                            # Szacowany koszt (brak dokładnej duracji, szacuję z rozmiaru)
+                            estimated_duration = (file_size_mb * 8) / 128  # szacunkowo
+                            cost_usd = (estimated_duration / 60) * 0.006
+                            cost_pln = cost_usd * 4.0
+                            st.info(f"💰 Szacowany koszt: ${cost_usd:.4f} (~{cost_pln:.2f} PLN)")
+                            
+                            # Transkrypcja
+                            with st.spinner("🎙️ Transkrypcja w toku... To może potrwać chwilę."):
+                                result = transkrybuj_audio_api(temp_audio)
+                                st.success("✅ Transkrypcja zakończona!")
+                            
+                            # Wyświetlanie wyników
+                            st.header("📝 Wyniki transkrypcji")
+                            
+                            # Pełny tekst
+                            st.subheader("Pełny tekst:")
+                            st.text_area(
+                                "Transkrypcja:",
+                                result['text'],
+                                height=300,
+                                label_visibility="collapsed"
+                            )
+                            
+                            # Przycisk pobierania
+                            st.download_button(
+                                label="💾 Pobierz transkrypcję (TXT)",
+                                data=result['text'],
+                                file_name="transkrypcja.txt",
+                                mime="text/plain"
+                            )
+                            
+                            # Segmenty z czasami (jeśli dostępne)
+                            if result.get('segments'):
+                                with st.expander("🕐 Pokaż segmenty z znacznikami czasu"):
+                                    for segment in result['segments']:
+                                        start = segment.get('start', 0)
+                                        end = segment.get('end', 0)
+                                        text = segment.get('text', '')
+                                        st.write(f"**[{start:.2f}s - {end:.2f}s]** {text}")
+                            
+                            # Statystyki
+                            with st.expander("📊 Statystyki"):
+                                num_chars = len(result['text'])
+                                num_words = len(result['text'].split())
+                                estimated_tokens = num_chars // 4
+                                
+                                st.write(f"- **Język:** {result.get('language', 'pl')}")
+                                st.write(f"- **Liczba znaków:** {num_chars:,}")
+                                st.write(f"- **Liczba słów:** {num_words:,}")
+                                st.write(f"- **Szacowana liczba tokenów:** {estimated_tokens:,}")
+                                st.write(f"- **Rozmiar pliku:** {file_size_mb:.2f}MB")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Błąd transkrypcji: {str(e)}")
+    
+    # TAB 2: Link YouTube/Facebook
+    with tab2:
+        st.subheader("Pobierz audio z YouTube/Facebook")
+        st.info("⚠️ Funkcja pobierania z YouTube może nie działać na Streamlit Cloud z powodu ograniczeń sieci. Preferuj wgrywanie pliku!")
+        
+        url = st.text_input(
+            "Link do filmu:",
+            placeholder="https://www.youtube.com/watch?v=...",
+            help="Wklej pełny link do filmu z Facebooka lub YouTube"
+        )
+        
+        if st.button("🎬 Rozpocznij transkrypcję z linku", type="primary", key="transcribe_url"):
+            if not url:
+                st.warning("⚠️ Proszę podać link do filmu.")
+                return
+
+            # Tworzenie tymczasowego katalogu
+            with tempfile.TemporaryDirectory() as temp_dir:
+                try:
+                    # Pobieranie audio
+                    with st.spinner("⬇️ Pobieranie audio..."):
+                        output_path = os.path.join(temp_dir, "audio")
+                        audio_file, duration = pobierz_audio(url, output_path)
+                        st.success("✅ Audio pobrane pomyślnie!")
                     
-                    # Przybliżona liczba tokenów (1 token ≈ 4 znaki dla PL)
-                    estimated_tokens = num_chars // 4
+                    # Sprawdź rozmiar pliku (API ma limit 25MB)
+                    file_size_mb = os.path.getsize(audio_file) / (1024 * 1024)
+                    if file_size_mb > 25:
+                        st.error(f"❌ Plik jest za duży ({file_size_mb:.1f}MB). OpenAI API akceptuje max 25MB.")
+                        st.info("💡 Spróbuj krótszego filmu.")
+                        return
                     
-                    # Rzeczywisty koszt
-                    actual_cost_usd = (duration / 60) * 0.006
-                    actual_cost_pln = actual_cost_usd * 4.0
+                    # Szacowany koszt
+                    cost_usd = (duration / 60) * 0.006
+                    cost_pln = cost_usd * 4.0
+                    st.info(f"💰 Szacowany koszt: ${cost_usd:.4f} (~{cost_pln:.2f} PLN)")
                     
-                    st.write(f"- **Język wykryty:** {result.get('language', 'pl')}")
-                    st.write(f"- **Liczba znaków:** {num_chars:,}")
-                    st.write(f"- **Liczba słów:** {num_words:,}")
-                    st.write(f"- **Szacowana liczba tokenów:** {estimated_tokens:,}")
-                    st.write(f"- **Długość audio:** {duration:.1f}s ({duration/60:.1f} min)")
-                    st.write(f"- **Koszt transkrypcji:** ${actual_cost_usd:.4f} (~{actual_cost_pln:.2f} PLN)")
-                
-            except Exception as e:
-                st.error(f"❌ Wystąpił błąd: {str(e)}")
-                st.info("💡 Sprawdź czy link jest prawidłowy i czy materiał jest publicznie dostępny.")
+                    # Transkrypcja
+                    with st.spinner("🎙️ Transkrypcja w toku... To może potrwać chwilę."):
+                        result = transkrybuj_audio_api(audio_file)
+                        st.success("✅ Transkrypcja zakończona!")
+                    
+                    # Wyświetlanie wyników
+                    st.header("📝 Wyniki transkrypcji")
+                    
+                    # Pełny tekst
+                    st.subheader("Pełny tekst:")
+                    st.text_area(
+                        "Transkrypcja:",
+                        result['text'],
+                        height=300,
+                        label_visibility="collapsed"
+                    )
+                    
+                    # Przycisk pobierania
+                    st.download_button(
+                        label="💾 Pobierz transkrypcję (TXT)",
+                        data=result['text'],
+                        file_name="transkrypcja.txt",
+                        mime="text/plain"
+                    )
+                    
+                    # Segmenty z czasami (jeśli dostępne)
+                    if result.get('segments'):
+                        with st.expander("🕐 Pokaż segmenty z znacznikami czasu"):
+                            for segment in result['segments']:
+                                start = segment.get('start', 0)
+                                end = segment.get('end', 0)
+                                text = segment.get('text', '')
+                                st.write(f"**[{start:.2f}s - {end:.2f}s]** {text}")
+                    
+                    # Informacje statystyczne
+                    with st.expander("📊 Statystyki"):
+                        num_chars = len(result['text'])
+                        num_words = len(result['text'].split())
+                        
+                        # Przybliżona liczba tokenów (1 token ≈ 4 znaki dla PL)
+                        estimated_tokens = num_chars // 4
+                        
+                        # Rzeczywisty koszt
+                        actual_cost_usd = (duration / 60) * 0.006
+                        actual_cost_pln = actual_cost_usd * 4.0
+                        
+                        st.write(f"- **Język wykryty:** {result.get('language', 'pl')}")
+                        st.write(f"- **Liczba znaków:** {num_chars:,}")
+                        st.write(f"- **Liczba słów:** {num_words:,}")
+                        st.write(f"- **Szacowana liczba tokenów:** {estimated_tokens:,}")
+                        st.write(f"- **Długość audio:** {duration:.1f}s ({duration/60:.1f} min)")
+                        st.write(f"- **Koszt transkrypcji:** ${actual_cost_usd:.4f} (~{actual_cost_pln:.2f} PLN)")
+                    
+                except Exception as e:
+                    st.error(f"❌ Błąd: {str(e)}")
+                    st.info("💡 YouTube może blokować dostęp z chmury. Spróbuj wgrać plik audio zamiast linku!")
 
 def main():
     """Główna funkcja aplikacji"""
